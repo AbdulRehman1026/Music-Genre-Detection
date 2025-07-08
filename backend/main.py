@@ -1,17 +1,26 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from tensorflow.keras.models import load_model
-from utils.audio_processor import process_audio_and_predict
-from utils.youtube_downloader import download_youtube_audio
+from keras.models import load_model
+from pathlib import Path
+import numpy as np
+import uvicorn
 import os
-import shutil
 import uuid
+from utils.audio_processor import extract_features
+from utils.youtube_downloader import download_youtube_audio
 
-# Initialize FastAPI app
+# Load model
+model = load_model("model/genre_model.h5", compile=False)
+
+# Class labels
+CLASS_NAMES = [
+    "blues", "classical", "country", "disco", "hiphop",
+    "jazz", "metal", "pop", "reggae", "rock"
+]
+
 app = FastAPI()
 
-# Enable CORS so frontend (Gradio) can access the backend
+# CORS for frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,43 +29,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load the model once at startup
-model = load_model("model/genre_model.h5", compile=False)
-
-# Create temp folder if not exists
-os.makedirs("temp", exist_ok=True)
+def predict_genre(audio_path: Path, model) -> str:
+    predictions = extract_features(audio_path, model)
+    predicted_index = np.argmax(predictions)
+    return CLASS_NAMES[predicted_index]
 
 @app.post("/predict/file")
 async def predict_from_file(file: UploadFile = File(...)):
-    temp_path = f"temp/{uuid.uuid4()}_{file.filename}"
-    with open(temp_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    try:
+        temp_dir = Path("temp")
+        temp_dir.mkdir(exist_ok=True)
+        temp_file_path = temp_dir / f"{uuid.uuid4().hex}_{file.filename}"
+        
+        with open(temp_file_path, "wb") as f:
+            f.write(await file.read())
 
-    prediction = process_audio_and_predict(temp_path, model)
-    os.remove(temp_path)
-
-    return JSONResponse({"genre": prediction})
-
+        genre = predict_genre(temp_file_path, model)
+        os.remove(temp_file_path)
+        return {"genre": genre}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
 
 @app.post("/predict/youtube")
 async def predict_from_youtube(url: str = Form(...)):
-    audio_path = download_youtube_audio(url)
-    if not audio_path:
-        return JSONResponse({"error": "Failed to download YouTube audio."}, status_code=400)
+    try:
+        temp_dir = Path("temp")
+        temp_dir.mkdir(exist_ok=True)
+        temp_filename = f"{uuid.uuid4().hex}.wav"
+        output_path = temp_dir / temp_filename
 
-    prediction = process_audio_and_predict(audio_path, model)
-    os.remove(audio_path)
+        audio_path = download_youtube_audio(url, output_path)
 
-    return JSONResponse({"genre": prediction})
+        if not audio_path or not audio_path.exists():
+            raise HTTPException(status_code=400, detail="Failed to download audio.")
 
+        genre = predict_genre(audio_path, model)
+        os.remove(audio_path)
+        return {"genre": genre}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"YouTube prediction error: {str(e)}")
 
-@app.post("/predict/mic")
-async def predict_from_mic(file: UploadFile = File(...)):
-    temp_path = f"temp/{uuid.uuid4()}_{file.filename}"
-    with open(temp_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-
-    prediction = process_audio_and_predict(temp_path, model)
-    os.remove(temp_path)
-
-    return JSONResponse({"genre": prediction})
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

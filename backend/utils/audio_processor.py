@@ -1,21 +1,41 @@
 import librosa
 import numpy as np
+import matplotlib.pyplot as plt
+from tensorflow.keras.preprocessing.image import img_to_array
+from PIL import Image
+import os
+import uuid
 
-def process_audio_and_predict(file_path, model):
+def extract_features(file_path, model, img_height=128, img_width=130):
     try:
-        y, sr = librosa.load(file_path, sr=22050)
-        y = y[:660000]  # 30 seconds max
-        mel = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
-        mel_db = librosa.power_to_db(mel, ref=np.max)
+        # Load audio file
+        y, sr = librosa.load(file_path, duration=30)
 
-        mel_db = np.expand_dims(mel_db, axis=-1)
-        mel_db = np.expand_dims(mel_db, axis=0)
+        # Generate mel spectrogram
+        S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
+        S_dB = librosa.power_to_db(S, ref=np.max)
 
-        prediction = model.predict(mel_db)
-        predicted_class = np.argmax(prediction, axis=1)[0]
+        # Save spectrogram as an image
+        temp_img_path = f"temp/{uuid.uuid4().hex}.png"
+        plt.figure(figsize=(img_width / 100, img_height / 100))
+        plt.axis('off')
+        plt.imshow(S_dB, aspect='auto', origin='lower')
+        plt.tight_layout(pad=0)
+        plt.savefig(temp_img_path, bbox_inches='tight', pad_inches=0)
+        plt.close()
 
-        genre_labels = ['blues', 'classical', 'country', 'disco', 'hiphop',
-                        'jazz', 'metal', 'pop', 'reggae', 'rock']
-        return genre_labels[predicted_class]
+        # Load image and resize (PIL)
+        img = Image.open(temp_img_path).convert("RGB")
+        img = img.resize((img_width, img_height))
+        img_array = img_to_array(img)
+        img_array = img_array / 255.0
+        img_array = np.expand_dims(img_array, axis=0)
+
+        # Delete temp file
+        os.remove(temp_img_path)
+
+        # Predict genre
+        prediction = model.predict(img_array)
+        return prediction
     except Exception as e:
-        return f"Error: {str(e)}"
+        raise RuntimeError(f"Prediction failed for {file_path}: {str(e)}")
