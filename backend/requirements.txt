@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+librosa
+pydub
+tensorflow
+soundfile
+yt-dlp
+ffmpeg-python
