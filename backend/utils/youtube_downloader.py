@@ -1,30 +1,37 @@
-import yt_dlp
 import os
-import uuid
-from pydub import AudioSegment
+from pathlib import Path
+from yt_dlp import YoutubeDL
 
-def download_youtube_audio(url):
-    temp_id = str(uuid.uuid4())
-    temp_mp3 = f"temp/{temp_id}.mp3"
-    temp_wav = f"temp/{temp_id}.wav"
+def download_youtube_audio(url, output_path: Path) -> Path or None:
+    """
+    Downloads audio from a YouTube video and converts it to WAV.
+    Returns the path to the saved .wav file or None on failure.
+    """
+    temp_audio_template = output_path.with_suffix(".%(ext)s")
 
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': temp_mp3,
+        'outtmpl': str(temp_audio_template),  # 🔧 CORRECT HERE
         'quiet': True,
+        'ffmpeg_location': 'C:\\ffmpeg-7.1.1-full_build\\bin',  # 🔧 Your path
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
+            'preferredcodec': 'wav',
+            'preferredquality': '192',
         }],
     }
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        audio = AudioSegment.from_mp3(temp_mp3)
-        audio.export(temp_wav, format="wav")
-        os.remove(temp_mp3)
-        return temp_wav
+
+        final_path = output_path.with_suffix('.wav')
+        if final_path.exists():
+            return final_path
+        else:
+            print("Expected .wav file was not found.")
+            return None
+
     except Exception as e:
-        print("YouTube download error:", e)
+        print(f"YouTube download error: {e}")
         return None

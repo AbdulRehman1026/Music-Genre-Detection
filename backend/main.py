@@ -21,7 +21,7 @@ app.add_middleware(
 )
 
 # Load the model once at startup
-model = load_model("model/genre_model.h5")
+model = load_model("model/genre_model.h5", compile=False)
 
 # Create temp folder if not exists
 os.makedirs("temp", exist_ok=True)

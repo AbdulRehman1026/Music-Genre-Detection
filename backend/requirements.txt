@@ -6,3 +6,4 @@ tensorflow
 soundfile
 yt-dlp
 ffmpeg-python
+python-multipart
